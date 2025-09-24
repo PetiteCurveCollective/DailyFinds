@@ -1,0 +1,31 @@
+name: Build daily storefront
+on:
+  schedule:
+    - cron: "0 12 * * *" # 7am ET daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Build storefront
+        env:
+          AMZ_ACCESS_KEY: ${{ secrets.AMZ_ACCESS_KEY }}
+          AMZ_SECRET_KEY: ${{ secrets.AMZ_SECRET_KEY }}
+          AMZ_PARTNER_TAG: ${{ secrets.AMZ_PARTNER_TAG }}
+        run: python build_storefront.py
+      - name: Commit & push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add docs/storefront.html daily_curated.csv
+          git commit -m "Daily storefront update" || echo "No changes"
+          git push
