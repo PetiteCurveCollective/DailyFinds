@@ -8,7 +8,7 @@ ACCESS = os.getenv("AMZ_ACCESS_KEY")
 SECRET = os.getenv("AMZ_SECRET_KEY")
 TAG    = os.getenv("AMZ_PARTNER_TAG")
 
-api = AmazonApi(ACCESS, SECRET, TAG, "us")
+api = AmazonApi(ACCESS, SECRET, TAG, "US")
 
 # 👉 Edit these keywords for your niche
 KEYWORDS = [
