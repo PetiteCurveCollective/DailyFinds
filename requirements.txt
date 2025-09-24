@@ -1,2 +1,2 @@
-paapi5-python-sdk
+python-amazon-paapi
 pandas
