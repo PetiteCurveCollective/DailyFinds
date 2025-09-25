@@ -88,7 +88,7 @@ html = f"""<!doctype html><html><head><meta charset='utf-8'>
 <div class='footer'><p>Updated {datetime.now():%Y-%m-%d}. Disclosure: As an Amazon Associate, I earn from qualifying purchases.</p></div>
 </body></html>"""
 
-with open("docs/storefront.html", "w", encoding="utf-8") as f:
+with open("docs/index.html","w",encoding="utf-8") as f:
     f.write(html)
 
 print("Built docs/storefront.html and daily_curated.csv")
