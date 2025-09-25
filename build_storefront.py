@@ -2,7 +2,6 @@
 import os
 from datetime import datetime
 
-# Try to import the Amazon PA-API library
 USE_API = True
 try:
     from amazon_paapi import AmazonApi
@@ -10,7 +9,6 @@ except Exception as e:
     print(f"[warn] amazon_paapi import failed: {e}")
     USE_API = False
 
-# --- Settings you can tweak ---
 KEYWORDS = [
     "petite plus dress",
     "curvy petite tops",
@@ -20,15 +18,12 @@ KEYWORDS = [
 ]
 MIN_STARS = 4.2
 MIN_REVIEWS = 200
-COUNTRY = "US"  # must be uppercase for the library
-# -------------------------------
+COUNTRY = "US"
 
-# Get secrets (already created in your repo)
 ACCESS = os.getenv("AMZ_ACCESS_KEY")
 SECRET = os.getenv("AMZ_SECRET_KEY")
 TAG    = os.getenv("AMZ_PARTNER_TAG") or "heydealdiva-20"
 
-# Initialize API if possible
 api = None
 if USE_API and ACCESS and SECRET and TAG:
     try:
@@ -38,51 +33,33 @@ if USE_API and ACCESS and SECRET and TAG:
         USE_API = False
 
 def product_cards():
-    """Return a list of HTML snippets for product cards."""
     cards = []
-
     if not api:
-        print("[info] API not available; returning empty list (page will show a friendly message).")
         return cards
 
     for kw in KEYWORDS:
         try:
-            print(f"[info] searching: {kw}")
-            # item_count=10 per keyword is usually enough; add more keywords for more items
             results = api.search_items(keywords=kw, search_index="Fashion", item_count=10)
             for it in getattr(results, "items", []):
-                # Title
                 title = "Amazon Item"
                 if getattr(it, "item_info", None) and getattr(it.item_info, "title", None):
                     title = it.item_info.title.display_value or title
-
-                # URL (use tag)
                 asin = getattr(it, "asin", "")
                 url = f"https://www.amazon.com/dp/{asin}?tag={TAG}" if asin else "#"
-
-                # Image
                 img = ""
                 if getattr(it, "images", None) and getattr(it.images, "primary", None) and getattr(it.images.primary, "large", None):
                     img = it.images.primary.large.url
-
-                # Rating / reviews
                 rating = getattr(getattr(it, "customer_reviews", None), "star_rating", None)
                 reviews = getattr(getattr(it, "customer_reviews", None), "count", None)
-
-                # Price (if present)
                 price = None
                 offers = getattr(it, "offers", None)
                 if offers and getattr(offers, "listings", None):
                     listing0 = offers.listings[0]
                     if listing0 and getattr(listing0, "price", None):
                         price = listing0.price.amount
-
-                # Filter
                 if rating and reviews and rating >= MIN_STARS and reviews >= MIN_REVIEWS:
-                    # Shorten long titles for cards
                     short_title = (title[:90] + "…") if len(str(title)) > 95 else str(title)
                     price_text = f"${price}" if price not in (None, "", "None") else ""
-
                     cards.append(
                         f"<a class='card' href='{url}' target='_blank' rel='nofollow sponsored noreferrer'>"
                         f"<img src='{img}' alt='{short_title}'/>"
@@ -93,14 +70,12 @@ def product_cards():
         except Exception as e:
             print(f"[warn] keyword '{kw}' failed: {e}")
             continue
-
     return cards
 
 def build_html(cards):
-    """Build full HTML page with header image and grid."""
     css = """
     body {font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#fff}
-    .header {background:#8ec6ff;padding:20px 0;text-align:center}
+    .header {padding:20px 0;text-align:center}
     .header img {max-width:320px;height:auto}
     .wrap {padding:24px}
     .grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
@@ -126,7 +101,7 @@ def build_html(cards):
 </head>
 <body>
 
-  <!-- header with blue background + your header.png -->
+  <!-- header with just your hanger image, no blue bar -->
   <div class="header">
     <img src="header.png" alt="Petite Curve Collective">
   </div>
@@ -148,7 +123,6 @@ def build_html(cards):
 def main():
     cards = product_cards()
     html = build_html(cards)
-
     os.makedirs("docs", exist_ok=True)
     with open("docs/index.html", "w", encoding="utf-8") as f:
         f.write(html)
