@@ -82,6 +82,9 @@ html = f"""<!doctype html><html><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Daily Petite-Curvy Finds</title>
 <style>{css}</style></head><body>
+<div style="text-align:center; margin-bottom:20px;">
+  <img src="header.png" alt="Petite Curve Collective" style="max-width:300px; height:auto;">
+</div>
 <h1>Daily Petite-Curvy Finds</h1>
 <div class='grid'>{''.join(cards)}</div>
 <div class='footer'><p>Updated {datetime.now():%Y-%m-%d}. Disclosure: As an Amazon Associate, I earn from qualifying purchases. I also work with other top retailers and may earn when you shop my links. At no additional cost to you.
