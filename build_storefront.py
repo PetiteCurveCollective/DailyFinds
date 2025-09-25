@@ -1,7 +1,9 @@
 # build_storefront.py
 import os
+import time
 from datetime import datetime
 
+# ---- Try to import the PA-API client ----
 USE_API = True
 try:
     from amazon_paapi import AmazonApi
@@ -9,23 +11,35 @@ except Exception as e:
     print(f"[warn] amazon_paapi import failed: {e}")
     USE_API = False
 
-# ---------- CRITERIA ----------
+# ---- Your criteria / config ----
 KEYWORDS = [
     "women petite plus dress",
     "women petite plus tops",
     "women petite plus jeans",
     "women petite plus cardigan",
     "women petite plus blazer",
+    "women petite plus sweaters",
+    "women petite plus jackets",
+    "women petite plus activewear",
 ]
 MIN_STARS = 4.2
 MIN_REVIEWS = 200
 SEARCH_INDEX = "Fashion"
-COUNTRY = "US"
+COUNTRY = "US"  # must match your tag’s marketplace
 
-# ---------- SECRETS ----------
+# Throttling / retry settings
+REQUEST_DELAY_SEC = 2          # wait between calls to avoid rate limit
+MAX_RETRIES_PER_CALL = 4       # how many times to retry a throttled call
+BACKOFF_MULTIPLIER = 2.0       # exponential backoff factor
+
+# ---- Secrets (from GitHub Actions env) ----
 ACCESS = os.getenv("AMZ_ACCESS_KEY")
 SECRET = os.getenv("AMZ_SECRET_KEY")
 TAG    = os.getenv("AMZ_PARTNER_TAG") or "heydealdiva-20"
+
+print("[env] HAVE_ACCESS_KEY =", bool(ACCESS))
+print("[env] HAVE_SECRET_KEY =", bool(SECRET))
+print("[env] TAG_SUFFIX =", (TAG or "")[-4:])
 
 api = None
 if USE_API and ACCESS and SECRET and TAG:
@@ -37,24 +51,54 @@ if USE_API and ACCESS and SECRET and TAG:
         USE_API = False
 
 
+def _is_throttle_error(err: Exception) -> bool:
+    """Heuristic: does error look like a throttling/limit error?"""
+    msg = str(err).lower()
+    return any(s in msg for s in ["limit", "throttle", "too many requests", "rate"])
+
+
+def call_with_retry(func, *args, **kwargs):
+    """
+    Call PA-API with retries + exponential backoff on throttling.
+    Returns (result, error) where only one is non-None.
+    """
+    delay = REQUEST_DELAY_SEC
+    for attempt in range(1, MAX_RETRIES_PER_CALL + 1):
+        try:
+            res = func(*args, **kwargs)
+            return res, None
+        except Exception as e:
+            if _is_throttle_error(e) and attempt < MAX_RETRIES_PER_CALL:
+                print(f"[throttle] attempt {attempt}/{MAX_RETRIES_PER_CALL} – waiting {delay:.1f}s then retrying…")
+                time.sleep(delay)
+                delay *= BACKOFF_MULTIPLIER
+                continue
+            return None, e
+
+
 def build_card_from_item(it):
-    """Return one product card HTML if it passes filters."""
+    """Create one product card HTML if it passes filters; else return None."""
+    # Title
     title = "Amazon Item"
     if getattr(it, "item_info", None) and getattr(it.item_info, "title", None):
         title = it.item_info.title.display_value or title
 
+    # URL
     asin = getattr(it, "asin", "")
     url = f"https://www.amazon.com/dp/{asin}?tag={TAG}" if asin else "#"
 
+    # Image
     img = ""
     if getattr(it, "images", None) and getattr(it.images, "primary", None) and getattr(it.images.primary, "large", None):
         img = it.images.primary.large.url
 
+    # Rating / reviews filter
     rating = getattr(getattr(it, "customer_reviews", None), "star_rating", None)
     reviews = getattr(getattr(it, "customer_reviews", None), "count", None)
     if not (rating and reviews and rating >= MIN_STARS and reviews >= MIN_REVIEWS):
         return None
 
+    # Price (if available)
     price = None
     offers = getattr(it, "offers", None)
     if offers and getattr(offers, "listings", None):
@@ -75,7 +119,7 @@ def build_card_from_item(it):
 
 
 def fetch_cards():
-    """Search by keywords and return filtered cards."""
+    """Search for items across keywords with throttling + retry."""
     cards = []
     seen_urls = set()
 
@@ -84,20 +128,33 @@ def fetch_cards():
         return cards
 
     for kw in KEYWORDS:
-        try:
-            print(f"[info] search: '{kw}'")
-            results = api.search_items(keywords=kw, search_index=SEARCH_INDEX, item_count=10)
-            for it in getattr(results, "items", []):
+        print(f"[info] search: '{kw}'")
+        # polite delay between requests
+        time.sleep(REQUEST_DELAY_SEC)
+
+        # Try page 1 and 2 for a little more coverage
+        for page in (1, 2):
+            res, err = call_with_retry(
+                api.search_items,
+                keywords=kw,
+                search_index=SEARCH_INDEX,
+                item_count=10,
+                item_page=page
+            )
+            if err:
+                print(f"[warn] search failed for '{kw}' p{page}: {err}")
+                continue
+
+            for it in getattr(res, "items", []):
                 card = build_card_from_item(it)
-                if card:
-                    asin = getattr(it, "asin", "")
-                    url = f"https://www.amazon.com/dp/{asin}?tag={TAG}"
-                    if url not in seen_urls:
-                        seen_urls.add(url)
-                        cards.append(card)
-        except Exception as e:
-            print(f"[warn] search failed for '{kw}': {e}")
-            continue
+                if not card:
+                    continue
+                asin = getattr(it, "asin", "")
+                url = f"https://www.amazon.com/dp/{asin}?tag={TAG}"
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                cards.append(card)
 
     print(f"[info] total cards: {len(cards)}")
     return cards
@@ -140,7 +197,7 @@ def build_html(cards):
     </div>
 
     <div class='footer'>
-      <p>Updated {datetime.now():%Y-%m-%d}. As an Amazon Associate, I earn from qualifying purchases. I also work with other top retailers and may earn when you shop my links. At no additional cost to you.</p>
+      <p>Updated {datetime.now():%Y-%m-%d}. This page contains affiliate links; I may earn a commission at no extra cost to you. As an Amazon Associate, I earn from qualifying purchases.</p>
     </div>
   </div>
 
@@ -158,18 +215,6 @@ def main():
     print("Wrote docs/index.html")
 
 
-# --- Quick API Sanity Test ---
+# Run when invoked by GitHub Actions
 if __name__ == "__main__":
-    # When run by GitHub Actions, try one small search and print results
-    try:
-        test_api = AmazonApi(ACCESS, SECRET, TAG, COUNTRY)
-        res = test_api.search_items(keywords="petite dress", search_index="Fashion", item_count=3)
-        print("✅ API sanity test worked. Found items:")
-        for item in getattr(res, "items", []):
-            title = getattr(item.item_info.title, "display_value", "No title")
-            print("-", item.asin, title)
-    except Exception as e:
-        print("❌ API sanity test failed:", e)
-
-    # Continue normal page build
     main()
