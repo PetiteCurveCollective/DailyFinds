@@ -22,13 +22,19 @@ COUNTRY = "US"
 # Caption style for RSS ("short" or "rich")
 CAPTION_STYLE = "rich"
 
-# Disclosure only for the website footer
+# Disclosure (web footer only — NOT in captions)
 DISCLOSURE = ("As an Amazon Associate, I earn from qualifying purchases. I also work with other top retailers and may earn when you shop my links. At no additional cost to you.")
 
-# Throttling/retry
+# Throttling / retry
 REQUEST_DELAY_SEC = 4
 MAX_RETRIES_PER_CALL = 6
 BACKOFF_MULTIPLIER = 2.0
+
+# Fallback RSS item if we got 0 products today
+FALLBACK_ON_EMPTY = True
+SITE_URL = "https://petitecurvecollective.github.io/DailyFinds/"  # your public page
+FALLBACK_IMAGE = "header.png"  # file under docs/
+FALLBACK_HASHTAGS = "#petite #curvy #petitecurvy #amazonfinds #dailyfinds #outfitideas"
 
 # ---------- AMAZON PA-API ----------
 USE_API = True
@@ -117,7 +123,7 @@ def fetch_products():
     for kw in KEYWORDS:
         print(f"[info] search: '{kw}'")
         time.sleep(REQUEST_DELAY_SEC)
-        for page in (1,):
+        for page in (1,):  # add 2 if your quota grows
             res, err = call_with_retry(
                 api.search_items,
                 keywords=kw,
@@ -226,15 +232,18 @@ def rss_caption(p):
 
 
 def write_rss(products, path, site_url):
+    """Write RSS. If no products and fallback enabled, post a 'new picks live' item."""
     updated_rfc2822 = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
     items_xml = []
-    for p in products:
-        title = escape(p["title"])
-        link = p["url"]
-        img  = p["image"]
-        guid = escape(p.get("asin") or p["url"])
-        desc = rss_caption(p)
-        items_xml.append(f"""
+
+    if products:
+        for p in products:
+            title = escape(p["title"])
+            link = p["url"]
+            img  = p["image"]
+            guid = escape(p.get("asin") or p["url"])
+            desc = rss_caption(p)
+            items_xml.append(f"""
       <item>
         <title>{title}</title>
         <link>{link}</link>
@@ -243,6 +252,20 @@ def write_rss(products, path, site_url):
         <description><![CDATA[{desc}]]></description>
         <enclosure url="{img}" type="image/jpeg"/>
       </item>""")
+    elif FALLBACK_ON_EMPTY:
+        fallback_title = "New Petite-Curvy picks are live"
+        fallback_desc = f"Fresh petite + curvy finds are up now.\nShop ⤵\n{site_url}\n{FALLBACK_HASHTAGS}"
+        fallback_img = site_url + FALLBACK_IMAGE.lstrip("/")
+        items_xml.append(f"""
+      <item>
+        <title>{escape(fallback_title)}</title>
+        <link>{site_url}</link>
+        <guid isPermaLink="false">{escape(site_url + 'fallback-' + datetime.now().strftime('%Y%m%d'))}</guid>
+        <pubDate>{updated_rfc2822}</pubDate>
+        <description><![CDATA[{fallback_desc}]]></description>
+        <enclosure url="{fallback_img}" type="image/jpeg"/>
+      </item>""")
+
     feed = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
@@ -270,7 +293,7 @@ def main():
 
     # CSV + RSS
     write_csv(products, "docs/daily_curated.csv")
-    write_rss(products, "docs/feed.xml", "https://petitecurvecollective.github.io/DailyFinds/")
+    write_rss(products, "docs/feed.xml", SITE_URL)
 
 
 if __name__ == "__main__":
