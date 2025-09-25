@@ -83,9 +83,9 @@ html = f"""<!doctype html><html><head><meta charset='utf-8'>
 <title>Daily Petite-Curvy Finds</title>
 <style>{css}</style></head><body>
 <h1>Daily Petite-Curvy Finds</h1>
-<p class='sub'>Curated for petite + curvy fits (4.2★+, 200+ reviews).</p>
 <div class='grid'>{''.join(cards)}</div>
-<div class='footer'><p>Updated {datetime.now():%Y-%m-%d}. Disclosure: As an Amazon Associate, I earn from qualifying purchases.</p></div>
+<div class='footer'><p>Updated {datetime.now():%Y-%m-%d}. Disclosure: As an Amazon Associate, I earn from qualifying purchases. I also work with other top retailers and may earn when you shop my links. At no additional cost to you.
+</p></div>
 </body></html>"""
 
 with open("docs/index.html","w",encoding="utf-8") as f:
