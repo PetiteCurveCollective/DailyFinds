@@ -1,17 +1,9 @@
 # build_storefront.py
-import os
-import time
-from datetime import datetime
+import os, time, csv
+from datetime import datetime, timezone
+from html import escape
 
-# ---- Try to import the PA-API client ----
-USE_API = True
-try:
-    from amazon_paapi import AmazonApi
-except Exception as e:
-    print(f"[warn] amazon_paapi import failed: {e}")
-    USE_API = False
-
-# ---- Your criteria / config ----
+# ---------- CONFIG ----------
 KEYWORDS = [
     "women petite plus dress",
     "women petite plus tops",
@@ -25,14 +17,29 @@ KEYWORDS = [
 MIN_STARS = 4.2
 MIN_REVIEWS = 200
 SEARCH_INDEX = "Fashion"
-COUNTRY = "US"  # must match your tag’s marketplace
+COUNTRY = "US"
 
-# Throttling / retry settings
-REQUEST_DELAY_SEC = 2          # wait between calls to avoid rate limit
-MAX_RETRIES_PER_CALL = 4       # how many times to retry a throttled call
-BACKOFF_MULTIPLIER = 2.0       # exponential backoff factor
+# Caption style for RSS ("short" or "rich")
+CAPTION_STYLE = "rich"
 
-# ---- Secrets (from GitHub Actions env) ----
+# Disclosure only for the website footer
+DISCLOSURE = ("As an Amazon Associate, I earn from qualifying purchases. "
+              "I also work with other top retailers and may earn when you shop my links. "
+              "At no additional cost to you.")
+
+# Throttling/retry
+REQUEST_DELAY_SEC = 4
+MAX_RETRIES_PER_CALL = 6
+BACKOFF_MULTIPLIER = 2.0
+
+# ---------- AMAZON PA-API ----------
+USE_API = True
+try:
+    from amazon_paapi import AmazonApi
+except Exception as e:
+    print(f"[warn] amazon_paapi import failed: {e}")
+    USE_API = False
+
 ACCESS = os.getenv("AMZ_ACCESS_KEY")
 SECRET = os.getenv("AMZ_SECRET_KEY")
 TAG    = os.getenv("AMZ_PARTNER_TAG") or "heydealdiva-20"
@@ -52,88 +59,67 @@ if USE_API and ACCESS and SECRET and TAG:
 
 
 def _is_throttle_error(err: Exception) -> bool:
-    """Heuristic: does error look like a throttling/limit error?"""
     msg = str(err).lower()
     return any(s in msg for s in ["limit", "throttle", "too many requests", "rate"])
 
 
 def call_with_retry(func, *args, **kwargs):
-    """
-    Call PA-API with retries + exponential backoff on throttling.
-    Returns (result, error) where only one is non-None.
-    """
     delay = REQUEST_DELAY_SEC
     for attempt in range(1, MAX_RETRIES_PER_CALL + 1):
         try:
-            res = func(*args, **kwargs)
-            return res, None
+            return func(*args, **kwargs), None
         except Exception as e:
             if _is_throttle_error(e) and attempt < MAX_RETRIES_PER_CALL:
                 print(f"[throttle] attempt {attempt}/{MAX_RETRIES_PER_CALL} – waiting {delay:.1f}s then retrying…")
-                time.sleep(delay)
-                delay *= BACKOFF_MULTIPLIER
+                time.sleep(delay); delay *= BACKOFF_MULTIPLIER
                 continue
             return None, e
 
 
-def build_card_from_item(it):
-    """Create one product card HTML if it passes filters; else return None."""
-    # Title
+def to_dict(item):
     title = "Amazon Item"
-    if getattr(it, "item_info", None) and getattr(it.item_info, "title", None):
-        title = it.item_info.title.display_value or title
+    if getattr(item, "item_info", None) and getattr(item.item_info, "title", None):
+        title = item.item_info.title.display_value or title
 
-    # URL
-    asin = getattr(it, "asin", "")
-    url = f"https://www.amazon.com/dp/{asin}?tag={TAG}" if asin else "#"
+    asin = getattr(item, "asin", "")
+    url = f"https://www.amazon.com/dp/{asin}?tag={TAG}" if asin else ""
 
-    # Image
     img = ""
-    if getattr(it, "images", None) and getattr(it.images, "primary", None) and getattr(it.images.primary, "large", None):
-        img = it.images.primary.large.url
+    if getattr(item, "images", None) and getattr(item.images, "primary", None) and getattr(item.images.primary, "large", None):
+        img = item.images.primary.large.url or ""
 
-    # Rating / reviews filter
-    rating = getattr(getattr(it, "customer_reviews", None), "star_rating", None)
-    reviews = getattr(getattr(it, "customer_reviews", None), "count", None)
+    rating = getattr(getattr(item, "customer_reviews", None), "star_rating", None)
+    reviews = getattr(getattr(item, "customer_reviews", None), "count", None)
     if not (rating and reviews and rating >= MIN_STARS and reviews >= MIN_REVIEWS):
         return None
 
-    # Price (if available)
     price = None
-    offers = getattr(it, "offers", None)
+    offers = getattr(item, "offers", None)
     if offers and getattr(offers, "listings", None):
         listing0 = offers.listings[0]
         if listing0 and getattr(listing0, "price", None):
             price = listing0.price.amount
 
     short_title = (title[:90] + "…") if len(str(title)) > 95 else str(title)
-    price_text = f"${price}" if price not in (None, "", "None") else ""
-
-    return (
-        f"<a class='card' href='{url}' target='_blank' rel='nofollow sponsored noreferrer'>"
-        f"<img src='{img}' alt='{short_title}'/>"
-        f"<h3>{short_title}</h3>"
-        f"<p>{price_text}</p>"
-        f"</a>"
-    )
+    return {
+        "asin": asin,
+        "title": short_title,
+        "url": url,
+        "image": img,
+        "price": ("" if price in (None, "", "None") else f"${price}")
+    }
 
 
-def fetch_cards():
-    """Search for items across keywords with throttling + retry."""
-    cards = []
-    seen_urls = set()
-
+def fetch_products():
+    products, seen = [], set()
     if not api:
         print("[info] API unavailable; returning no products.")
-        return cards
+        return products
 
     for kw in KEYWORDS:
         print(f"[info] search: '{kw}'")
-        # polite delay between requests
         time.sleep(REQUEST_DELAY_SEC)
-
-        # Try page 1 and 2 for a little more coverage
-        for page in (1, 2):
+        for page in (1,):
             res, err = call_with_retry(
                 api.search_items,
                 keywords=kw,
@@ -144,23 +130,19 @@ def fetch_cards():
             if err:
                 print(f"[warn] search failed for '{kw}' p{page}: {err}")
                 continue
-
             for it in getattr(res, "items", []):
-                card = build_card_from_item(it)
-                if not card:
+                d = to_dict(it)
+                if not d or not d["url"]:
                     continue
-                asin = getattr(it, "asin", "")
-                url = f"https://www.amazon.com/dp/{asin}?tag={TAG}"
-                if url in seen_urls:
+                if d["url"] in seen:
                     continue
-                seen_urls.add(url)
-                cards.append(card)
+                seen.add(d["url"])
+                products.append(d)
+    print(f"[info] total products: {len(products)}")
+    return products
 
-    print(f"[info] total cards: {len(cards)}")
-    return cards
 
-
-def build_html(cards):
+def build_html(products):
     css = """
     body {font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#fff}
     .header {padding:20px 0;text-align:center}
@@ -174,8 +156,19 @@ def build_html(cards):
     .empty {opacity:.7;text-align:center;margin:40px 0}
     .footer {margin:28px 0;font-size:12px;opacity:.7;text-align:center}
     """
-
-    grid_inner = ''.join(cards) if cards else "<p class='empty'>New picks are loading — check back soon.</p>"
+    if products:
+        cards = []
+        for p in products:
+            cards.append(
+                f"<a class='card' href='{p['url']}' target='_blank' rel='nofollow sponsored noreferrer'>"
+                f"<img src='{p['image']}' alt='{escape(p['title'])}'/>"
+                f"<h3>{escape(p['title'])}</h3>"
+                f"<p>{escape(p['price'])}</p>"
+                f"</a>"
+            )
+        grid_inner = "".join(cards)
+    else:
+        grid_inner = "<p class='empty'>New picks are loading — check back soon.</p>"
 
     html = f"""<!doctype html>
 <html>
@@ -186,35 +179,101 @@ def build_html(cards):
   <style>{css}</style>
 </head>
 <body>
-
   <div class="header">
     <img src="header.png" alt="Petite Curve Collective">
   </div>
-
   <div class="wrap">
-    <div class='grid'>
-      {grid_inner}
-    </div>
-
+    <div class='grid'>{grid_inner}</div>
     <div class='footer'>
-      <p>Updated {datetime.now():%Y-%m-%d}. As an Amazon Associate, I earn from qualifying purchases. I also work with other top retailers and may earn when you shop my links. At no additional cost to you.</p>
+      <p>Updated {datetime.now():%Y-%m-%d}. {escape(DISCLOSURE)}</p>
     </div>
   </div>
-
 </body>
 </html>"""
     return html
 
 
+def write_csv(products, path):
+    fieldnames = ["title", "url", "image", "price", "date"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for p in products:
+            row = dict(p)
+            row["date"] = datetime.now().strftime("%Y-%m-%d")
+            w.writerow(row)
+    print(f"[info] wrote {path}")
+
+
+def rss_caption(p):
+    title = p["title"]
+    price = p["price"]
+    if CAPTION_STYLE == "short":
+        lines = [
+            f"{title}",
+            (price if price else ""),
+            "Shop ⤵",
+            p["url"],
+            "#petite #curvy #petitecurvy #amazonfinds #dailyfinds #outfitideas"
+        ]
+    else:
+        lines = [
+            f"{title}",
+            (f"{price} · Petite + Curvy find" if price else "Petite + Curvy find"),
+            "Shop ⤵",
+            p["url"],
+            "#petite #curvy #petitecurvy #amazonfinds #dailyfinds #outfitideas"
+        ]
+    return "\n".join([l for l in lines if l.strip() != ""])
+
+
+def write_rss(products, path, site_url):
+    updated_rfc2822 = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    items_xml = []
+    for p in products:
+        title = escape(p["title"])
+        link = p["url"]
+        img  = p["image"]
+        guid = escape(p.get("asin") or p["url"])
+        desc = rss_caption(p)
+        items_xml.append(f"""
+      <item>
+        <title>{title}</title>
+        <link>{link}</link>
+        <guid isPermaLink="false">{guid}</guid>
+        <pubDate>{updated_rfc2822}</pubDate>
+        <description><![CDATA[{desc}]]></description>
+        <enclosure url="{img}" type="image/jpeg"/>
+      </item>""")
+    feed = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Petite Curve Collective — Daily Picks</title>
+    <link>{site_url}</link>
+    <description>Daily curated petite+curvy Amazon finds (rating ≥ 4.2, ≥ 200 reviews).</description>
+    <lastBuildDate>{updated_rfc2822}</lastBuildDate>
+    {''.join(items_xml)}
+  </channel>
+</rss>"""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(feed)
+    print(f"[info] wrote {path}")
+
+
 def main():
-    cards = fetch_cards()
-    html = build_html(cards)
+    products = fetch_products()
     os.makedirs("docs", exist_ok=True)
+
+    # HTML page
+    html = build_html(products)
     with open("docs/index.html", "w", encoding="utf-8") as f:
         f.write(html)
     print("Wrote docs/index.html")
 
+    # CSV + RSS
+    write_csv(products, "docs/daily_curated.csv")
+    write_rss(products, "docs/feed.xml", "https://petitecurvecollective.github.io/DailyFinds/")
 
-# Run when invoked by GitHub Actions
+
 if __name__ == "__main__":
     main()
