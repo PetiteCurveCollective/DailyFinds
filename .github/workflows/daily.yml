@@ -22,10 +22,10 @@ jobs:
           AMZ_SECRET_KEY: ${{ secrets.AMZ_SECRET_KEY }}
           AMZ_PARTNER_TAG: ${{ secrets.AMZ_PARTNER_TAG }}
         run: python build_storefront.py
-      - name: Commit & push
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add docs/*.html docs/*.xml docs/*.csv
-          git commit -m "Daily storefront update" || echo "No changes"
-          git push
+- name: Commit & push
+  run: |
+    git config user.name "github-actions"
+    git config user.email "actions@users.noreply.github.com"
+    git add docs/**
+    git commit -m "Daily storefront update" || echo "no changes"
+    git push
