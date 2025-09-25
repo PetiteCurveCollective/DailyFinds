@@ -197,7 +197,7 @@ def build_html(cards):
     </div>
 
     <div class='footer'>
-      <p>Updated {datetime.now():%Y-%m-%d}. This page contains affiliate links; I may earn a commission at no extra cost to you. As an Amazon Associate, I earn from qualifying purchases.</p>
+      <p>Updated {datetime.now():%Y-%m-%d}. As an Amazon Associate, I earn from qualifying purchases. I also work with other top retailers and may earn when you shop my links. At no additional cost to you.</p>
     </div>
   </div>
 
