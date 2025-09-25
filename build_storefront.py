@@ -23,9 +23,7 @@ COUNTRY = "US"
 CAPTION_STYLE = "rich"
 
 # Disclosure only for the website footer
-DISCLOSURE = ("As an Amazon Associate, I earn from qualifying purchases. "
-              "I also work with other top retailers and may earn when you shop my links. "
-              "At no additional cost to you.")
+DISCLOSURE = ("As an Amazon Associate, I earn from qualifying purchases. I also work with other top retailers and may earn when you shop my links. At no additional cost to you.")
 
 # Throttling/retry
 REQUEST_DELAY_SEC = 4
