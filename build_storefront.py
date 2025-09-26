@@ -1,34 +1,40 @@
 # build_storefront.py
-# Clean PA-API storefront builder for GitHub Pages (docs/)
-# Uses the high-level 'amazon_paapi' wrapper to avoid SDK argument issues.
 
 import os, time, csv, re, random
 from datetime import datetime, timezone
 from html import escape
 
-# ============================== CONFIG ===============================
+# Use the python-amazon-paapi wrapper
+from amazon_paapi import AmazonApi
 
-# Core queries (petite+plus first, plus as backfill, petite XL terms too)
-KEYWORDS = [
-    # Petite + Plus (primary)
-    "women petite plus dress", "women petite plus midi dress",
-    "women petite plus tops", "women petite plus blouses",
-    "women petite plus jeans", "women petite plus trousers",
-    "women petite plus cardigan", "women petite plus sweater",
-    "women petite plus blazer", "women petite plus jacket",
-    "women petite plus coat",
+# --- Credentials from GitHub Secrets ---
+ACCESS_KEY  = os.getenv("AMZ_ACCESS_KEY")
+SECRET_KEY  = os.getenv("AMZ_SECRET_KEY")
+PARTNER_TAG = os.getenv("AMZ_PARTNER_TAG") or "heydealdiva-20"
+COUNTRY     = "US"
 
-    # Plus (helps fill when petite+plus wording is sparse)
+print("[env] HAVE_ACCESS_KEY =", bool(ACCESS_KEY))
+print("[env] HAVE_SECRET_KEY =", bool(SECRET_KEY))
+print("[env] TAG_SUFFIX      =", (PARTNER_TAG or "")[-4:])
+
+api = None
+try:
+    api = AmazonApi(ACCESS_KEY, SECRET_KEY, PARTNER_TAG, COUNTRY)
+    print("[info] AmazonApi initialized")
+except Exception as e:
+    print(f"[warn] Could not init AmazonApi: {e}")
+
+    # Plus only (adds inventory; size gate will still apply)
     "women plus size dress", "women plus size tops", "women plus size jeans",
     "women plus size cardigan", "women plus size sweater", "women plus size blazer",
-    "women plus size trousers", "women plus size coat",
+    "women plus size trousers", "women plus size coat", "women plus size workwear",
 
-    # Petite with size terms
-    "women petite dress xl", "women petite tops xl", "women petite cardigan xl",
-    "women petite blazer xl", "women petite coat xl",
+    # Petite with explicit XL hints
+    "women petite dress xl", "women petite tops xl",
+    "women petite cardigan xl", "women petite blazer xl", "women petite coat xl",
 ]
 
-# Filters
+# Filters (adaptive fallback)
 TARGET_MIN = 12
 STRICT_MIN_STARS   = 4.2
 STRICT_MIN_REVIEWS = 200
@@ -42,7 +48,7 @@ REQUIRED_SIZE_PATTERN = re.compile(r"\b(0X|XL|XXL|1X|2X|3X)\b", re.I)
 
 # Amazon search
 SEARCH_INDEX = "Fashion"
-COUNTRY      = "US"  # your account is US
+COUNTRY      = "US"
 RESOURCES = [
     "CustomerReviews.Count",
     "CustomerReviews.StarRating",
@@ -73,23 +79,24 @@ CAPTION_STYLE      = "rich"   # for RSS descriptions
 
 USE_API = True
 try:
-    from amazon_paapi import AmazonApi   # pip install amazon-paapi
+    # pip package: python-amazon-paapi  →  module: amazon_paapi
+    from amazon_paapi import AmazonApi
 except Exception as e:
     print(f"[warn] amazon_paapi import failed: {e}")
     USE_API = False
 
-ACCESS = os.getenv("AMZ_ACCESS_KEY")
-SECRET = os.getenv("AMZ_SECRET_KEY")
-TAG    = os.getenv("AMZ_PARTNER_TAG") or "heydealdiva-20"
+ACCESS_KEY  = os.getenv("AMZ_ACCESS_KEY")
+SECRET_KEY  = os.getenv("AMZ_SECRET_KEY")
+PARTNER_TAG = os.getenv("AMZ_PARTNER_TAG") or "heydealdiva-20"
 
-print("[env] HAVE_ACCESS_KEY =", bool(ACCESS))
-print("[env] HAVE_SECRET_KEY =", bool(SECRET))
-print("[env] TAG_SUFFIX      =", (TAG or "")[-4:])
+print("[env] HAVE_ACCESS_KEY =", bool(ACCESS_KEY))
+print("[env] HAVE_SECRET_KEY =", bool(SECRET_KEY))
+print("[env] TAG_SUFFIX      =", (PARTNER_TAG or "")[-4:])
 
 api = None
-if USE_API and ACCESS and SECRET and TAG:
+if USE_API and ACCESS_KEY and SECRET_KEY and PARTNER_TAG:
     try:
-        api = AmazonApi(ACCESS, SECRET, TAG, COUNTRY)
+        api = AmazonApi(ACCESS_KEY, SECRET_KEY, PARTNER_TAG, COUNTRY)
         print("[info] AmazonApi initialized")
     except Exception as e:
         print(f"[warn] Could not init AmazonApi: {e}")
@@ -124,6 +131,7 @@ def call_with_retry(func, *args, **kwargs):
 # ============================== HELPERS ==============================
 
 def extract(item):
+    """Pull fields we need; keep raw title/features for size checks."""
     title = "Amazon Item"
     try:
         if getattr(item, "item_info", None) and getattr(item.item_info, "title", None):
@@ -136,10 +144,10 @@ def extract(item):
         if getattr(item, "item_info", None) and getattr(item.item_info, "features", None):
             features = item.item_info.features.display_values or []
     except Exception:
-        pass
+        features = []
 
     asin = getattr(item, "asin", "") or ""
-    url  = f"https://www.amazon.com/dp/{asin}?tag={TAG}" if asin else ""
+    url  = f"https://www.amazon.com/dp/{asin}?tag={PARTNER_TAG}" if asin else ""
 
     img = ""
     try:
@@ -175,7 +183,7 @@ def extract(item):
     }
 
 def size_gate(p) -> bool:
-    # Enforce XL / XXL / 0X / 1X–3X in title or features
+    """Enforce XL / XXL / 0X / 1X / 2X / 3X in title or features."""
     text = " ".join([p.get("title_raw","")] + p.get("features", []))
     return bool(REQUIRED_SIZE_PATTERN.search(text))
 
@@ -273,7 +281,11 @@ def build_html(products):
             )
         grid = "".join(cards)
     else:
-        grid = "<div class='empty'>New picks are loading — check back soon.</div>"
+        grid = """
+        <div class='empty'>
+          <p>New picks are loading — check back soon.</p>
+          <p style='font-size:12px;opacity:.7'>(No items passed today’s filters: rating/reviews + size gate)</p>
+        </div>"""
 
     return f"""<!doctype html>
 <html><head>
