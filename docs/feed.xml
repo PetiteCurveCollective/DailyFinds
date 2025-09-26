@@ -1,21 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
-  <channel>
-    <title>Petite Curve Collective — Daily Picks</title>
-    <link>https://petitecurvecollective.github.io/DailyFinds/</link>
-    <description>Daily curated petite+curvy Amazon finds (strict size rule: XL/XXL/0X/1X–3X; anti-throttle pacing).</description>
-    <lastBuildDate>Thu, 25 Sep 2025 23:16:51 +0000</lastBuildDate>
-    
+<rss version="2.0"><channel>
+<title>Petite Curve Collective — Daily Picks</title>
+<link>https://petitecurvecollective.github.io/DailyFinds/</link>
+<description>Daily curated petite+curvy Amazon finds (XL/XXL/0X/1X–3X).</description>
+<lastBuildDate>Fri, 26 Sep 2025 02:34:15 +0000</lastBuildDate>
+
       <item>
         <title>New Petite-Curvy picks are live</title>
         <link>https://petitecurvecollective.github.io/DailyFinds/</link>
-        <guid isPermaLink="false">https://petitecurvecollective.github.io/DailyFinds/fallback-20250925</guid>
-        <pubDate>Thu, 25 Sep 2025 23:16:51 +0000</pubDate>
-        <description><![CDATA[Fresh petite + curvy finds are up now.
-Shop ⤵
+        <guid isPermaLink="false">https://petitecurvecollective.github.io/DailyFinds/fallback-20250926</guid>
+        <pubDate>Fri, 26 Sep 2025 02:34:15 +0000</pubDate>
+        <description><![CDATA[Fresh petite+curvy finds. Shop ⤵
 https://petitecurvecollective.github.io/DailyFinds/
 #petite #curvy #petitecurvy #amazonfinds #dailyfinds #outfitideas]]></description>
         <enclosure url="https://petitecurvecollective.github.io/DailyFinds/header.png" type="image/jpeg"/>
       </item>
-  </channel>
-</rss>
+</channel></rss>
