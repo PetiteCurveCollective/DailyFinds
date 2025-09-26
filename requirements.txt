@@ -1,2 +1,2 @@
-python-amazon-paapi
+amazon-paapi
 pandas
