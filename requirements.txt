@@ -1,2 +1,3 @@
-amazon-paapi
+python-amazon-paapi
 pandas
+requests
